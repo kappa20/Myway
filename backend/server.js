@@ -9,6 +9,7 @@ const resourcesRouter = require('./routes/resources');
 const todosRouter = require('./routes/todos');
 const pomodoroRouter = require('./routes/pomodoro');
 const analyticsRouter = require('./routes/analytics');
+const demoRouter = require('./routes/demo');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -24,6 +25,7 @@ app.use('/api', resourcesRouter);
 app.use('/api', todosRouter);
 app.use('/api/pomodoro', pomodoroRouter);
 app.use('/api/analytics', analyticsRouter);
+app.use('/api/demo', demoRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
