@@ -137,3 +137,75 @@ export const todosAPI = {
     return handleResponse(response);
   },
 };
+
+// Pomodoro API
+export const pomodoroAPI = {
+  createSession: async (sessionData) => {
+    const response = await fetch(`${API_URL}/pomodoro/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sessionData),
+    });
+    return handleResponse(response);
+  },
+
+  completeSession: async (sessionId, completionData) => {
+    const response = await fetch(`${API_URL}/pomodoro/sessions/${sessionId}/complete`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(completionData),
+    });
+    return handleResponse(response);
+  },
+
+  updateSession: async (sessionId, updateData) => {
+    const response = await fetch(`${API_URL}/pomodoro/sessions/${sessionId}/update`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updateData),
+    });
+    return handleResponse(response);
+  },
+
+  getSessions: async (filters = {}) => {
+    const params = new URLSearchParams(filters);
+    const response = await fetch(`${API_URL}/pomodoro/sessions?${params}`);
+    return handleResponse(response);
+  },
+
+  getStats: async (filters = {}) => {
+    const params = new URLSearchParams(filters);
+    const response = await fetch(`${API_URL}/pomodoro/sessions/stats?${params}`);
+    return handleResponse(response);
+  },
+};
+
+// Analytics API
+export const analyticsAPI = {
+  getOverview: async () => {
+    const response = await fetch(`${API_URL}/analytics/overview`);
+    return handleResponse(response);
+  },
+
+  getPomodoroByModule: async (filters = {}) => {
+    const params = new URLSearchParams(filters);
+    const response = await fetch(`${API_URL}/analytics/pomodoro-by-module?${params}`);
+    return handleResponse(response);
+  },
+
+  getModuleEngagement: async () => {
+    const response = await fetch(`${API_URL}/analytics/module-engagement`);
+    return handleResponse(response);
+  },
+
+  getTodoTrends: async (filters = {}) => {
+    const params = new URLSearchParams(filters);
+    const response = await fetch(`${API_URL}/analytics/todo-trends?${params}`);
+    return handleResponse(response);
+  },
+
+  getProductivityPatterns: async () => {
+    const response = await fetch(`${API_URL}/analytics/productivity-patterns`);
+    return handleResponse(response);
+  },
+};

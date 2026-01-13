@@ -7,6 +7,8 @@ const db = require('./database/db');
 const modulesRouter = require('./routes/modules');
 const resourcesRouter = require('./routes/resources');
 const todosRouter = require('./routes/todos');
+const pomodoroRouter = require('./routes/pomodoro');
+const analyticsRouter = require('./routes/analytics');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -20,6 +22,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/modules', modulesRouter);
 app.use('/api', resourcesRouter);
 app.use('/api', todosRouter);
+app.use('/api/pomodoro', pomodoroRouter);
+app.use('/api/analytics', analyticsRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

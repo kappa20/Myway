@@ -34,4 +34,4 @@ backend/uploads/*
 
 .claude/*
 
-/tmpclaude-*-cwd
+tmpclaude-*-cwd

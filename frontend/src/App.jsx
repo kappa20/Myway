@@ -1,11 +1,10 @@
+import { Routes, Route } from 'react-router-dom';
 import { ModuleProvider } from './contexts/ModuleContext';
 import { TodoProvider } from './contexts/TodoContext';
 import { PomodoroProvider } from './contexts/PomodoroContext';
 import Header from './components/layout/Header';
-import ModuleList from './components/modules/ModuleList';
-import ResourceList from './components/resources/ResourceList';
-import TodoList from './components/todos/TodoList';
-import PomodoroTimer from './components/pomodoro/PomodoroTimer';
+import Dashboard from './pages/Dashboard';
+import Analytics from './pages/Analytics';
 import './App.css';
 
 function App() {
@@ -16,19 +15,11 @@ function App() {
           <div className="app">
             <Header />
 
-            <div className="app-layout">
-              <div className="left-panel">
-                <ModuleList />
-              </div>
-
-              <div className="center-panel">
-                <ResourceList />
-                <TodoList />
-              </div>
-
-              <div className="right-panel">
-                <PomodoroTimer />
-              </div>
+            <div className="app-routes">
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/analytics" element={<Analytics />} />
+              </Routes>
             </div>
           </div>
         </PomodoroProvider>
