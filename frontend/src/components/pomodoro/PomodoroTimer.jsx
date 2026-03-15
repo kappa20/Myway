@@ -58,7 +58,7 @@ export default function PomodoroTimer() {
 
       <div className="timer-display">
         <div className="timer-circle" style={{ '--progress': `${getProgress()}%` }}>
-          <svg width="200" height="200" viewBox="0 0 200 200">
+          <svg width="100%" height="100%" viewBox="0 0 200 200">
             <circle
               cx="100"
               cy="100"

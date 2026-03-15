@@ -9,6 +9,7 @@ export default function TodoForm({ moduleId, todo, onSuccess, onCancel }) {
     priority: todo?.priority || 'medium',
   });
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -20,6 +21,7 @@ export default function TodoForm({ moduleId, todo, onSuccess, onCancel }) {
     }
 
     try {
+      setSubmitting(true);
       if (todo) {
         await updateTodo(todo.id, { ...formData, completed: todo.completed });
       } else {
@@ -28,6 +30,8 @@ export default function TodoForm({ moduleId, todo, onSuccess, onCancel }) {
       onSuccess();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -38,9 +42,9 @@ export default function TodoForm({ moduleId, todo, onSuccess, onCancel }) {
       {error && <div className="error-message">{error}</div>}
 
       <div className="form-group">
-        <label htmlFor="title">Title *</label>
+        <label htmlFor="todo-title">Title *</label>
         <input
-          id="title"
+          id="todo-title"
           type="text"
           value={formData.title}
           onChange={(e) => setFormData({ ...formData, title: e.target.value })}
@@ -50,9 +54,9 @@ export default function TodoForm({ moduleId, todo, onSuccess, onCancel }) {
       </div>
 
       <div className="form-group">
-        <label htmlFor="description">Description</label>
+        <label htmlFor="todo-description">Description</label>
         <textarea
-          id="description"
+          id="todo-description"
           value={formData.description}
           onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           placeholder="Optional description"
@@ -61,9 +65,9 @@ export default function TodoForm({ moduleId, todo, onSuccess, onCancel }) {
       </div>
 
       <div className="form-group">
-        <label htmlFor="priority">Priority</label>
+        <label htmlFor="todo-priority">Priority</label>
         <select
-          id="priority"
+          id="todo-priority"
           value={formData.priority}
           onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
         >
@@ -74,10 +78,10 @@ export default function TodoForm({ moduleId, todo, onSuccess, onCancel }) {
       </div>
 
       <div className="form-actions">
-        <button type="submit" className="btn-primary">
-          {todo ? 'Update' : 'Create'}
+        <button type="submit" className="btn-primary" disabled={submitting}>
+          {submitting ? 'Saving...' : (todo ? 'Update' : 'Create')}
         </button>
-        <button type="button" onClick={onCancel} className="btn-secondary">
+        <button type="button" onClick={onCancel} className="btn-secondary" disabled={submitting}>
           Cancel
         </button>
       </div>

@@ -16,6 +16,9 @@ async function handleResponse(response) {
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(error.error || 'Request failed');
   }
+  if (response.status === 204 || response.headers.get('content-length') === '0') {
+    return null;
+  }
   return response.json();
 }
 
@@ -241,9 +244,11 @@ export const pomodoroAPI = {
 
 // Analytics API
 export const analyticsAPI = {
-  getOverview: async () => {
+  getOverview: async (filters = {}) => {
     const apiPrefix = getApiPrefix();
-    const response = await fetch(`${apiPrefix}/analytics/overview`);
+    const params = new URLSearchParams(filters);
+    const query = params.toString();
+    const response = await fetch(`${apiPrefix}/analytics/overview${query ? `?${query}` : ''}`);
     return handleResponse(response);
   },
 

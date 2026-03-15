@@ -1,7 +1,7 @@
 import { usePomodoro } from '../../contexts/PomodoroContext';
 
 export default function TimerControls() {
-  const { isRunning, start, pause, reset, switchMode, TIMER_MODES, sessionsCompleted } = usePomodoro();
+  const { isRunning, mode, start, pause, reset, switchMode, TIMER_MODES, sessionsCompleted } = usePomodoro();
 
   return (
     <div className="timer-controls">
@@ -23,19 +23,19 @@ export default function TimerControls() {
       <div className="mode-switcher">
         <button
           onClick={() => switchMode(TIMER_MODES.WORK)}
-          className="mode-btn"
+          className={`mode-btn ${mode === TIMER_MODES.WORK ? 'active' : ''}`}
         >
           Work
         </button>
         <button
           onClick={() => switchMode(TIMER_MODES.SHORT_BREAK)}
-          className="mode-btn"
+          className={`mode-btn ${mode === TIMER_MODES.SHORT_BREAK ? 'active' : ''}`}
         >
           Short Break
         </button>
         <button
           onClick={() => switchMode(TIMER_MODES.LONG_BREAK)}
-          className="mode-btn"
+          className={`mode-btn ${mode === TIMER_MODES.LONG_BREAK ? 'active' : ''}`}
         >
           Long Break
         </button>

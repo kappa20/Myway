@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { modulesAPI, resourcesAPI } from '../services/api';
 
 const ModuleContext = createContext();
@@ -9,16 +9,34 @@ export function ModuleProvider({ children }) {
   const [resources, setResources] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const loadResourcesAbortRef = useRef(null);
 
   useEffect(() => {
     loadModules();
   }, []);
 
+  // Use selectedModule?.id to avoid re-fetching when the object ref changes but id is the same
+  const selectedModuleId = selectedModule?.id;
   useEffect(() => {
-    if (selectedModule) {
-      loadResources(selectedModule.id);
+    // Cancel any in-flight resource request
+    if (loadResourcesAbortRef.current) {
+      loadResourcesAbortRef.current.abort();
     }
-  }, [selectedModule]);
+
+    if (selectedModuleId) {
+      const controller = new AbortController();
+      loadResourcesAbortRef.current = controller;
+      loadResources(selectedModuleId, controller.signal);
+    } else {
+      setResources([]);
+    }
+
+    return () => {
+      if (loadResourcesAbortRef.current) {
+        loadResourcesAbortRef.current.abort();
+      }
+    };
+  }, [selectedModuleId]);
 
   const loadModules = async () => {
     try {
@@ -33,79 +51,78 @@ export function ModuleProvider({ children }) {
     }
   };
 
-  const loadResources = async (moduleId) => {
+  const loadResources = async (moduleId, signal) => {
     try {
       const data = await resourcesAPI.getByModule(moduleId);
+      // Check if request was aborted before setting state
+      if (signal && signal.aborted) return;
       setResources(data);
     } catch (err) {
+      if (err.name === 'AbortError') return;
       setError(err.message);
     }
   };
 
-  const createModule = async (moduleData) => {
+  const createModule = useCallback(async (moduleData) => {
     try {
       const newModule = await modulesAPI.create(moduleData);
-      setModules([newModule, ...modules]);
+      setModules(prev => [newModule, ...prev]);
       return newModule;
     } catch (err) {
       setError(err.message);
       throw err;
     }
-  };
+  }, []);
 
-  const updateModule = async (id, moduleData) => {
+  const updateModule = useCallback(async (id, moduleData) => {
     try {
       const updated = await modulesAPI.update(id, moduleData);
-      setModules(modules.map(m => m.id === id ? updated : m));
-      if (selectedModule?.id === id) {
-        setSelectedModule(updated);
-      }
+      setModules(prev => prev.map(m => m.id === id ? updated : m));
+      setSelectedModule(prev => prev?.id === id ? updated : prev);
       return updated;
     } catch (err) {
       setError(err.message);
       throw err;
     }
-  };
+  }, []);
 
-  const deleteModule = async (id) => {
+  const deleteModule = useCallback(async (id) => {
     try {
       await modulesAPI.delete(id);
-      setModules(modules.filter(m => m.id !== id));
-      if (selectedModule?.id === id) {
-        setSelectedModule(null);
-      }
+      setModules(prev => prev.filter(m => m.id !== id));
+      setSelectedModule(prev => prev?.id === id ? null : prev);
     } catch (err) {
       setError(err.message);
       throw err;
     }
-  };
+  }, []);
 
-  const selectModule = (module) => {
+  const selectModule = useCallback((module) => {
     setSelectedModule(module);
-  };
+  }, []);
 
-  const createResource = async (moduleId, resourceData) => {
+  const createResource = useCallback(async (moduleId, resourceData) => {
     try {
       const newResource = await resourcesAPI.create(moduleId, resourceData);
-      setResources([newResource, ...resources]);
+      setResources(prev => [newResource, ...prev]);
       return newResource;
     } catch (err) {
       setError(err.message);
       throw err;
     }
-  };
+  }, []);
 
-  const deleteResource = async (id) => {
+  const deleteResource = useCallback(async (id) => {
     try {
       await resourcesAPI.delete(id);
-      setResources(resources.filter(r => r.id !== id));
+      setResources(prev => prev.filter(r => r.id !== id));
     } catch (err) {
       setError(err.message);
       throw err;
     }
-  };
+  }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     modules,
     selectedModule,
     resources,
@@ -118,7 +135,7 @@ export function ModuleProvider({ children }) {
     selectModule,
     createResource,
     deleteResource,
-  };
+  }), [modules, selectedModule, resources, loading, error, createModule, updateModule, deleteModule, selectModule, createResource, deleteResource]);
 
   return <ModuleContext.Provider value={value}>{children}</ModuleContext.Provider>;
 }

@@ -10,28 +10,45 @@ import DateRangeFilter from '../components/analytics/DateRangeFilter';
 export default function Analytics() {
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [dateRange, setDateRange] = useState({ preset: '30days' });
 
   useEffect(() => {
     loadOverview();
-  }, []);
+  }, [dateRange]);
 
   const loadOverview = async () => {
     try {
       setLoading(true);
-      const data = await analyticsAPI.getOverview();
+      setError(null);
+      const period = dateRange.preset === '7days' ? 7 : dateRange.preset === '90days' ? 90 : 30;
+      const data = await analyticsAPI.getOverview({ period });
       setOverview(data);
-    } catch (error) {
-      console.error('Failed to load overview:', error);
+    } catch (err) {
+      console.error('Failed to load overview:', err);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading || !overview) {
+  if (loading) {
     return (
       <div className="analytics-page">
         <div className="analytics-loading">Loading analytics...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="analytics-page">
+        <div className="error-message">
+          Failed to load analytics: {error}
+          <button onClick={loadOverview} className="btn-primary" style={{ marginLeft: '1rem' }}>
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
