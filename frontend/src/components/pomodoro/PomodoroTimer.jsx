@@ -64,7 +64,7 @@ export default function PomodoroTimer() {
               cy="100"
               r="90"
               fill="none"
-              stroke="#e5e7eb"
+              stroke="var(--timer-track)"
               strokeWidth="10"
             />
             <circle

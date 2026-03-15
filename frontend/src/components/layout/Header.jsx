@@ -1,9 +1,11 @@
 import { Link, useLocation } from 'react-router-dom';
 import { isDemoMode } from '../../services/api';
+import { useTheme } from '../../contexts/ThemeContext';
 
 export default function Header() {
   const location = useLocation();
   const demoMode = isDemoMode();
+  const { theme, toggleTheme } = useTheme();
 
   return (
     <header className="app-header">
@@ -29,6 +31,9 @@ export default function Header() {
           >
             Analytics
           </Link>
+          <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme">
+            {theme === 'light' ? '\u{1F319}' : '\u{2600}\u{FE0F}'}
+          </button>
         </nav>
       </div>
     </header>
