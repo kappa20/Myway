@@ -278,3 +278,39 @@ export const analyticsAPI = {
     return handleResponse(response);
   },
 };
+
+// AI Chat API
+export const aiAPI = {
+  sendMessage: async (moduleId, message, history) => {
+    if (isDemoMode()) {
+      return {
+        getReader: () => {
+          let sent = false;
+          return {
+            read: async () => {
+              if (!sent) {
+                sent = true;
+                const text = 'data: {"content":"This is a demo. Connect a Gemini API key to use the AI assistant."}\n\ndata: [DONE]\n\n';
+                return { done: false, value: new TextEncoder().encode(text) };
+              }
+              return { done: true, value: undefined };
+            },
+          };
+        },
+      };
+    }
+
+    const response = await fetch(`${API_URL}/ai/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ moduleId, message, history }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'AI request failed' }));
+      throw new Error(error.error || 'AI request failed');
+    }
+
+    return response.body;
+  },
+};

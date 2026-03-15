@@ -4,6 +4,7 @@ import { ModuleProvider } from './contexts/ModuleContext';
 import { TodoProvider } from './contexts/TodoContext';
 import { PomodoroProvider } from './contexts/PomodoroContext';
 import Header from './components/layout/Header';
+import AIChatWidget from './components/ai/AIChatWidget';
 import Dashboard from './pages/Dashboard';
 import Analytics from './pages/Analytics';
 import './App.css';
@@ -23,6 +24,7 @@ function App() {
                   <Route path="/analytics" element={<Analytics />} />
                 </Routes>
               </div>
+              <AIChatWidget />
             </div>
           </PomodoroProvider>
         </TodoProvider>
