@@ -88,6 +88,12 @@ jobs:
       # ─────────────────────────────────────────────────────────────
       # Build and Push Backend
       # ─────────────────────────────────────────────────────────────
+      - name: Debug - verify backend build context
+        run: |
+          echo "=== backend/ root ===" && ls -la backend/
+          echo "=== backend/database/ ===" && ls -la backend/database/ || echo "MISSING: database/ dir"
+          echo "=== .dockerignore ===" && cat backend/.dockerignore
+
       - name: Build and push backend image
         uses: docker/build-push-action@v5
         with:
@@ -160,11 +166,15 @@ jobs:
             kubectl apply -f /tmp/k8s-myway/frontend-deployment.yml
             kubectl apply -f /tmp/k8s-myway/frontend-service.yml
             kubectl set image deployment/myway-frontend myway-frontend=${{ env.IMAGE_FRONTEND }}:${{ github.sha }} -n myway
+          "
 
+      - name: Wait for rollout
+        run: |
+          ssh -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=20 ec2-user@${{ secrets.MASTER_IP }} "
+            set -e
             echo 'Waiting for deployments to be ready...'
             kubectl rollout status deployment/myway-backend -n myway --timeout=5m
             kubectl rollout status deployment/myway-frontend -n myway --timeout=5m
-
             echo 'Deployment completed successfully'
           "
 
