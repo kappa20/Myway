@@ -89,7 +89,7 @@ export default function AIChatWidget() {
         onClick={() => setIsOpen(!isOpen)}
         title="AI Study Assistant"
       >
-        {isOpen ? '\u2715' : '\uD83D\uDCAC'}
+        {isOpen ? '\u2715' : <><span>🤖</span> Ask AI</>}
       </button>
 
       {isOpen && (
