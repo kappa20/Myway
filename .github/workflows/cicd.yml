@@ -128,62 +128,62 @@ jobs:
   # ═════════════════════════════════════════════════════════════════
   # JOB 3: Deploy to Kubernetes
   # ═════════════════════════════════════════════════════════════════
-  deploy:
-    name: Deploy to Kubernetes (AWS)
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+  # deploy:
+  #   name: Deploy to Kubernetes (AWS)
+  #   runs-on: ubuntu-latest
+  #   needs: build-and-push
+  #   if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
 
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.MASTER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
+  #     - name: Setup SSH key
+  #       run: |
+  #         mkdir -p ~/.ssh
+  #         echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+  #         chmod 600 ~/.ssh/id_rsa
+  #         ssh-keyscan -H ${{ secrets.MASTER_IP }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Copy Kubernetes manifests to master node
-        run: |
-          ssh -o ConnectTimeout=10 ec2-user@${{ secrets.MASTER_IP }} "rm -rf /tmp/k8s-myway && mkdir -p /tmp/k8s-myway"
-          scp -r k8s/. ec2-user@${{ secrets.MASTER_IP }}:/tmp/k8s-myway/
+  #     - name: Copy Kubernetes manifests to master node
+  #       run: |
+  #         ssh -o ConnectTimeout=10 ec2-user@${{ secrets.MASTER_IP }} "rm -rf /tmp/k8s-myway && mkdir -p /tmp/k8s-myway"
+  #         scp -r k8s/. ec2-user@${{ secrets.MASTER_IP }}:/tmp/k8s-myway/
 
-      - name: Apply Kubernetes manifests
-        run: |
-          ssh -o ConnectTimeout=10 ec2-user@${{ secrets.MASTER_IP }} "
-            set -e
-            echo 'Creating namespace...'
-            kubectl apply -f /tmp/k8s-myway/namespace.yml
+  #     - name: Apply Kubernetes manifests
+  #       run: |
+  #         ssh -o ConnectTimeout=10 ec2-user@${{ secrets.MASTER_IP }} "
+  #           set -e
+  #           echo 'Creating namespace...'
+  #           kubectl apply -f /tmp/k8s-myway/namespace.yml
 
-            echo 'Deploying backend...'
-            kubectl apply -f /tmp/k8s-myway/backend-deployment.yml
-            kubectl apply -f /tmp/k8s-myway/backend-service.yml
-            kubectl set image deployment/myway-backend myway-backend=${{ env.IMAGE_BACKEND }}:${{ github.sha }} -n myway
+  #           echo 'Deploying backend...'
+  #           kubectl apply -f /tmp/k8s-myway/backend-deployment.yml
+  #           kubectl apply -f /tmp/k8s-myway/backend-service.yml
+  #           kubectl set image deployment/myway-backend myway-backend=${{ env.IMAGE_BACKEND }}:${{ github.sha }} -n myway
 
-            echo 'Deploying frontend...'
-            kubectl apply -f /tmp/k8s-myway/frontend-deployment.yml
-            kubectl apply -f /tmp/k8s-myway/frontend-service.yml
-            kubectl set image deployment/myway-frontend myway-frontend=${{ env.IMAGE_FRONTEND }}:${{ github.sha }} -n myway
-          "
+  #           echo 'Deploying frontend...'
+  #           kubectl apply -f /tmp/k8s-myway/frontend-deployment.yml
+  #           kubectl apply -f /tmp/k8s-myway/frontend-service.yml
+  #           kubectl set image deployment/myway-frontend myway-frontend=${{ env.IMAGE_FRONTEND }}:${{ github.sha }} -n myway
+  #         "
 
-      - name: Wait for rollout
-        run: |
-          ssh -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=20 ec2-user@${{ secrets.MASTER_IP }} "
-            set -e
-            echo 'Waiting for deployments to be ready...'
-            kubectl rollout status deployment/myway-backend -n myway --timeout=5m
-            kubectl rollout status deployment/myway-frontend -n myway --timeout=5m
-            echo 'Deployment completed successfully'
-          "
+  #     - name: Wait for rollout
+  #       run: |
+  #         ssh -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=20 ec2-user@${{ secrets.MASTER_IP }} "
+  #           set -e
+  #           echo 'Waiting for deployments to be ready...'
+  #           kubectl rollout status deployment/myway-backend -n myway --timeout=5m
+  #           kubectl rollout status deployment/myway-frontend -n myway --timeout=5m
+  #           echo 'Deployment completed successfully'
+  #         "
 
-      - name: Verify deployment
-        run: |
-          ssh ec2-user@${{ secrets.MASTER_IP }} "
-            echo 'Checking pods status...'
-            kubectl get pods -n myway
+  #     - name: Verify deployment
+  #       run: |
+  #         ssh ec2-user@${{ secrets.MASTER_IP }} "
+  #           echo 'Checking pods status...'
+  #           kubectl get pods -n myway
 
-            echo 'Checking services status...'
-            kubectl get svc -n myway
-          "
+  #           echo 'Checking services status...'
+  #           kubectl get svc -n myway
+  #         "
