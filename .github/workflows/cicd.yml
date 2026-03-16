@@ -154,10 +154,12 @@ jobs:
             echo 'Deploying backend...'
             kubectl apply -f /tmp/k8s-myway/backend-deployment.yml
             kubectl apply -f /tmp/k8s-myway/backend-service.yml
+            kubectl set image deployment/myway-backend myway-backend=${{ env.IMAGE_BACKEND }}:${{ github.sha }} -n myway
 
             echo 'Deploying frontend...'
             kubectl apply -f /tmp/k8s-myway/frontend-deployment.yml
             kubectl apply -f /tmp/k8s-myway/frontend-service.yml
+            kubectl set image deployment/myway-frontend myway-frontend=${{ env.IMAGE_FRONTEND }}:${{ github.sha }} -n myway
 
             echo 'Waiting for deployments to be ready...'
             kubectl rollout status deployment/myway-backend -n myway --timeout=5m
