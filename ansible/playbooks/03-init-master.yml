@@ -1,0 +1,164 @@
+---
+# ═══════════════════════════════════════════════════════════════════
+# PLAYBOOK 3 : Initialisation du Master Kubernetes
+# ═══════════════════════════════════════════════════════════════════
+# Ce playbook s'exécute UNIQUEMENT sur le master node.
+# Il fait 3 choses :
+#
+#   1. "kubeadm init" → crée le cluster Kubernetes (control plane)
+#   2. Installe Flannel → le réseau qui connecte les pods entre eux
+#   3. Génère la commande "join" → pour que le worker puisse rejoindre le cluster
+#
+# Architecture Kubernetes :
+#   Master (control plane) = le cerveau : gère les déploiements, surveille les pods
+#   Worker (data plane)    = les muscles : fait tourner les pods/containers
+#
+# COMMENT L'EXÉCUTER :
+#   ansible-playbook playbooks/03-init-master.yml
+
+- name: Initialiser le Master Node Kubernetes
+  hosts: master   # s'exécute SEULEMENT sur le master (défini dans inventory.ini)
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # CIDR = plage d'adresses IP pour les pods
+    # Chaque pod aura une IP dans la plage 10.244.x.x
+    # Cette valeur est requise par Flannel (le plugin réseau qu'on utilise)
+    pod_network_cidr: "10.244.0.0/16"
+
+    # Fichier créé par kubeadm init → contient les credentials du cluster
+    # S'il existe déjà, ça veut dire que le cluster est déjà initialisé
+    kubeadm_init_file: "/etc/kubernetes/admin.conf"
+
+  tasks:
+
+    # ─── TÂCHE 1 : Initialiser le cluster ────────────────────────
+    # "kubeadm init" = la commande magique qui crée le cluster Kubernetes.
+    # Elle installe et configure :
+    #   - etcd          : base de données du cluster (stocke l'état)
+    #   - API server    : le "cerveau" qui reçoit les commandes kubectl
+    #   - scheduler     : décide sur quel noeud placer chaque pod
+    #   - controller    : surveille et maintient l'état désiré du cluster
+    #
+    # "creates: kubeadm_init_file" = si admin.conf existe déjà, ne pas ré-exécuter
+    # → rend la tâche idempotente (safe à relancer plusieurs fois)
+    - name: Initialiser le cluster Kubernetes avec kubeadm
+      command: >
+        kubeadm init
+        --pod-network-cidr={{ pod_network_cidr }}
+        --kubernetes-version=v1.29.0
+        --ignore-preflight-errors=Mem
+      register: kubeadm_init
+      args:
+        creates: "{{ kubeadm_init_file }}"  # skip si déjà initialisé
+
+    - name: Confirmer l'initialisation
+      debug:
+        msg: "✅ Cluster Kubernetes initialisé avec succès"
+      when: kubeadm_init.changed
+
+    # ─── TÂCHE 2 : Configurer kubectl pour ec2-user ──────────────
+    # kubectl a besoin d'un fichier "config" pour savoir à quel cluster se connecter.
+    # kubeadm génère ce fichier dans /etc/kubernetes/admin.conf (accessible seulement par root).
+    # On le copie dans /home/ec2-user/.kube/config pour que ec2-user puisse utiliser kubectl
+    # sans avoir à faire "sudo kubectl" à chaque fois.
+    - name: Créer le répertoire .kube pour ec2-user
+      file:
+        path: /home/ec2-user/.kube
+        state: directory   # créer le répertoire s'il n'existe pas
+        owner: ec2-user
+        group: ec2-user
+        mode: "0755"       # droits : lecture/écriture/exécution pour ec2-user
+
+    - name: Copier admin.conf dans .kube/config
+      copy:
+        src: "{{ kubeadm_init_file }}"          # /etc/kubernetes/admin.conf (créé par kubeadm)
+        dest: /home/ec2-user/.kube/config       # destination pour kubectl
+        remote_src: yes   # le fichier source est sur la VM distante (pas sur ta machine locale)
+        owner: ec2-user
+        group: ec2-user
+        mode: "0600"      # droits : lecture/écriture seulement pour ec2-user (fichier sensible !)
+
+    # ─── TÂCHE 3 : Installer Flannel (CNI réseau) ────────────────
+    # CNI = Container Network Interface = le plugin réseau pour Kubernetes.
+    # Sans CNI, les pods ne peuvent pas communiquer entre eux.
+    # Flannel = CNI simple et populaire qui crée un réseau overlay entre les noeuds.
+    # Il assigne une IP unique à chaque pod dans la plage 10.244.0.0/16.
+    #
+    # "become: no" = exécuter en tant que ec2-user (pas root)
+    # car kubectl utilise le config de ec2-user (.kube/config)
+    - name: Installer Flannel CNI (réseau des pods)
+      become: no
+      command: >
+        kubectl apply -f
+        https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+      register: flannel_install
+      retries: 3    # réessayer jusqu'à 3 fois si ça échoue
+      delay: 10     # attendre 10 secondes entre chaque essai
+      until: flannel_install.rc == 0   # "rc == 0" = succès
+
+    - name: Attendre que Flannel soit démarré
+      become: no
+      command: >
+        kubectl wait --for=condition=ready pod
+        -l app=flannel
+        -n kube-flannel
+        --timeout=300s
+      register: flannel_ready
+      retries: 3
+      delay: 5
+      until: flannel_ready.rc == 0
+
+    # ─── TÂCHE 4 : Générer la commande "join" pour le worker ─────
+    # Pour qu'un worker rejoigne le cluster, il a besoin :
+    #   - L'adresse IP du master
+    #   - Un token d'authentification temporaire
+    #   - Un hash de sécurité (CA hash)
+    # "kubeadm token create --print-join-command" génère tout ça en une commande.
+    # Exemple de résultat :
+    #   kubeadm join 10.0.1.5:6443 --token abc123... --discovery-token-ca-cert-hash sha256:xyz...
+    - name: Générer la commande join pour les workers
+      command: kubeadm token create --print-join-command
+      register: join_command   # sauvegarder le résultat
+
+    # Sauvegarder la commande join sur ta machine LOCALE (/tmp/)
+    # "local_action" = exécuter cette action sur ta machine locale, pas sur la VM distante
+    - name: Sauvegarder la commande join sur la machine locale
+      local_action: copy content="{{ join_command.stdout }}" dest="/tmp/k8s_join_command.sh" mode="0755"
+      become: no
+
+    - name: Afficher la confirmation
+      debug:
+        msg: "✅ Commande join sauvegardée dans /tmp/k8s_join_command.sh"
+
+    # ─── TÂCHE 5 : Vérifier que le master est prêt ───────────────
+    # Attendre que le master passe à l'état "Ready"
+    # (peut prendre 1-3 minutes le temps que tous les composants démarrent)
+    - name: Attendre que le master soit prêt
+      become: no
+      command: kubectl wait --for=condition=Ready node --all --timeout=300s
+      register: master_ready
+      retries: 5
+      delay: 10
+      until: master_ready.rc == 0
+
+    - name: Afficher les noeuds du cluster
+      become: no
+      command: kubectl get nodes -o wide
+      register: nodes_status
+      changed_when: false
+
+    - name: Résultat — état des noeuds
+      debug:
+        msg: "{{ nodes_status.stdout }}"
+
+    - name: Afficher les infos du cluster
+      become: no
+      command: kubectl cluster-info
+      register: cluster_info
+      changed_when: false
+
+    - name: Résultat — infos du cluster
+      debug:
+        msg: "{{ cluster_info.stdout }}"

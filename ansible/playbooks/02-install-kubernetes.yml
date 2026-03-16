@@ -1,0 +1,154 @@
+---
+# ═══════════════════════════════════════════════════════════════════
+# PLAYBOOK 2 : Installation de Kubernetes
+# ═══════════════════════════════════════════════════════════════════
+# Ce playbook installe 3 composants sur master ET worker :
+#
+#   kubeadm  → l'outil qui crée et configure le cluster Kubernetes
+#   kubelet  → le démon qui tourne sur chaque noeud et gère les pods
+#   kubectl  → la CLI pour parler au cluster (kubectl get pods, etc.)
+#
+# Il configure aussi le réseau système requis par Kubernetes.
+#
+# COMMENT L'EXÉCUTER :
+#   ansible-playbook playbooks/02-install-kubernetes.yml
+
+- name: Installer les composants Kubernetes sur tous les noeuds
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    k8s_version: "1.29.0"   # version fixée pour éviter les incompatibilités
+
+  tasks:
+
+    # ─── TÂCHE 1 : Désactiver le swap (permanent) ────────────────
+    # Kubernetes EXIGE que le swap soit désactivé.
+    # Le swap = espace disque utilisé comme extension de la RAM.
+    # Kubernetes gère lui-même la mémoire et ne peut pas fonctionner
+    # si Linux peut déplacer de la mémoire vers le disque (swap).
+    - name: Désactiver le swap dans /etc/fstab (permanent)
+      replace:
+        path: /etc/fstab                   # fichier qui liste les partitions montées au boot
+        regexp: '^([^#].*\s+swap\s+.*)$'  # trouve les lignes qui concernent le swap
+        replace: '# \1'                    # les commente avec "#"
+      register: fstab_update
+
+    - name: Désactiver le swap immédiatement (sans redémarrer)
+      command: swapoff -a   # désactiver tout le swap actif maintenant
+      when: fstab_update.changed
+
+    # ─── TÂCHE 2 : Clé GPG de sécurité ──────────────────────────
+    # La clé GPG permet à yum de vérifier que les paquets Kubernetes
+    # téléchargés sont authentiques (non modifiés par un tiers malveillant).
+    - name: Ajouter la clé GPG de sécurité du repo Kubernetes
+      rpm_key:
+        key: https://pkgs.k8s.io/core:/stable:/v1.29/rpm/repodata/repomd.xml.key
+        state: present
+
+    # ─── TÂCHE 3 : Ajouter le repository Kubernetes ──────────────
+    # Amazon Linux ne contient pas kubeadm/kubelet/kubectl par défaut.
+    # On crée un fichier .repo pour dire à yum où les télécharger.
+    # "exclude" = ne pas mettre à jour ces paquets automatiquement.
+    - name: Ajouter le repository officiel Kubernetes
+      copy:
+        dest: /etc/yum.repos.d/kubernetes.repo
+        content: |
+          [kubernetes]
+          name=Kubernetes
+          baseurl=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/
+          enabled=1
+          gpgcheck=1
+          repo_gpgcheck=1
+          gpgkey=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/repodata/repomd.xml.key
+          exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
+
+    # ─── TÂCHE 4 : Installer kubeadm, kubelet, kubectl ───────────
+    # "{{ k8s_version }}" → remplacé par "1.29.0" (variable définie en haut)
+    # "disable_excludes: kubernetes" → override l'exclusion du .repo
+    - name: Installer kubeadm, kubelet et kubectl version {{ k8s_version }}
+      command: >
+        yum install -y
+        --disableexcludes=kubernetes
+        kubelet-{{ k8s_version }}
+        kubeadm-{{ k8s_version }}
+        kubectl-{{ k8s_version }}
+      args:
+        creates: /usr/bin/kubelet  # idempotent : skippé si kubelet est déjà installé
+
+    - name: Activer kubelet au démarrage du système
+      service:
+        name: kubelet
+        enabled: yes   # démarrer au boot
+        state: started
+        # kubelet va s'arrêter immédiatement → c'est NORMAL car le cluster n'existe pas encore
+        # il redémarrera correctement après "kubeadm init" dans le playbook 03
+
+    # ─── TÂCHE 5 : Modules kernel réseau ─────────────────────────
+    # Kubernetes a besoin de 2 modules kernel pour gérer le réseau des pods.
+    #
+    #   br_netfilter → le trafic des bridges réseau passe aussi par iptables
+    #                  Kubernetes utilise des bridges pour connecter les pods
+    #
+    #   overlay      → système de fichiers en couches des containers Docker
+    #                  Chaque image Docker est composée de "layers" overlay
+    - name: Charger le module kernel br_netfilter
+      modprobe:
+        name: br_netfilter
+        state: present
+
+    - name: Charger le module kernel overlay
+      modprobe:
+        name: overlay
+        state: present
+
+    - name: Rendre les modules permanents au reboot
+      copy:
+        dest: /etc/modules-load.d/k8s.conf
+        content: |
+          br_netfilter
+          overlay
+
+    # ─── TÂCHE 6 : Paramètres réseau sysctl ──────────────────────
+    # sysctl = paramètres du noyau Linux modifiables dynamiquement.
+    # Ces 3 paramètres sont OBLIGATOIRES pour Kubernetes :
+    #
+    #   net.bridge.bridge-nf-call-iptables = 1
+    #     → le trafic des bridges passe par iptables (routage entre pods)
+    #
+    #   net.bridge.bridge-nf-call-ip6tables = 1
+    #     → idem pour IPv6
+    #
+    #   net.ipv4.ip_forward = 1
+    #     → autorise la VM à faire suivre des paquets IP
+    #     → nécessaire pour la communication inter-noeuds
+    - name: Configurer les paramètres sysctl pour Kubernetes
+      sysctl:
+        name: "{{ item }}"   # "{{ item }}" = variable de boucle Ansible
+        value: "1"
+        sysctl_set: yes      # appliquer immédiatement
+        reload: yes
+        state: present
+      loop:                  # répéter pour chaque paramètre de la liste
+        - net.bridge.bridge-nf-call-iptables
+        - net.bridge.bridge-nf-call-ip6tables
+        - net.ipv4.ip_forward
+
+    - name: Sauvegarder les paramètres sysctl (persistent après reboot)
+      copy:
+        dest: /etc/sysctl.d/99-kubernetes.conf
+        content: |
+          net.bridge.bridge-nf-call-iptables = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+          net.ipv4.ip_forward = 1
+
+    # ─── TÂCHE 7 : Vérifier l'installation ───────────────────────
+    - name: Vérifier que kubelet est installé
+      command: kubelet --version
+      register: kubelet_version
+      changed_when: false   # juste une vérification, pas un changement
+
+    - name: Afficher la version de kubelet installée
+      debug:
+        msg: "✅ Kubernetes installé : {{ kubelet_version.stdout }}"

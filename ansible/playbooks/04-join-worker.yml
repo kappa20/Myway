@@ -1,0 +1,94 @@
+---
+# ═══════════════════════════════════════════════════════════════════
+# PLAYBOOK 4 : Joindre le Worker au Cluster Kubernetes
+# ═══════════════════════════════════════════════════════════════════
+# Ce playbook s'exécute UNIQUEMENT sur le worker node.
+# Il utilise la commande "join" générée par le playbook 03 pour
+# connecter le worker au cluster existant.
+#
+# Après ce playbook, le cluster aura 2 noeuds :
+#   k8s-master (control-plane) → gère le cluster
+#   k8s-worker (worker)        → fait tourner les pods Myway
+#
+# PRÉREQUIS : avoir exécuté le playbook 03 avant.
+#
+# COMMENT L'EXÉCUTER :
+#   ansible-playbook playbooks/04-join-worker.yml
+
+- name: Joindre le Worker au Cluster Kubernetes
+  hosts: workers   # s'exécute SEULEMENT sur le worker (défini dans inventory.ini)
+  become: yes
+  gather_facts: yes
+
+  tasks:
+
+    # ─── TÂCHE 1 : Copier la commande join ───────────────────────
+    # Le playbook 03 a sauvegardé la commande join dans /tmp/k8s_join_command.sh
+    # sur ta machine LOCALE. Ici on la copie vers la VM worker.
+    # La commande ressemble à :
+    #   kubeadm join 10.0.1.5:6443 --token abc123 --discovery-token-ca-cert-hash sha256:xyz
+    - name: Copier la commande join vers le worker
+      copy:
+        src: /tmp/k8s_join_command.sh   # fichier sur ta machine locale (créé par playbook 03)
+        dest: /tmp/join.sh              # destination sur la VM worker
+        mode: "0755"                    # rendre le fichier exécutable
+
+    - name: Afficher la commande join (pour vérification)
+      command: cat /tmp/join.sh
+      register: join_cmd
+      changed_when: false
+
+    - name: Contenu de la commande join
+      debug:
+        msg: "Commande join : {{ join_cmd.stdout }}"
+
+    # ─── TÂCHE 2 : Exécuter la commande join ─────────────────────
+    # "kubeadm join" = le worker se connecte au master et :
+    #   1. S'authentifie avec le token
+    #   2. Vérifie le certificat CA du cluster (le hash sha256)
+    #   3. Télécharge sa config depuis le master
+    #   4. Démarre kubelet en mode "worker"
+    #
+    # "creates: /etc/kubernetes/kubelet.conf" = si ce fichier existe déjà,
+    # le worker a déjà joint le cluster → on skip (idempotent)
+    - name: Exécuter la commande join pour rejoindre le cluster
+      shell: bash /tmp/join.sh
+      register: worker_join
+      retries: 3
+      delay: 10
+      until: worker_join.rc == 0
+      args:
+        creates: /etc/kubernetes/kubelet.conf  # skip si déjà joint
+
+    - name: Confirmer que le worker a rejoint le cluster
+      debug:
+        msg: "✅ Worker node rejoint le cluster avec succès !"
+      when: worker_join.changed
+
+    # ─── TÂCHE 3 : Vérifier l'état final du cluster ──────────────
+    # On vérifie depuis la machine locale que le worker apparaît
+    # dans le cluster et est à l'état "Ready".
+    # "local_action" = exécuter sur ta machine locale, pas sur la VM
+    - name: Attendre que le worker soit en état Ready
+      become: no
+      delegate_to: k8s-master   # kubectl est installé sur le master, pas en local
+      command: kubectl wait --for=condition=Ready node --all --timeout=300s
+      register: worker_ready
+      retries: 5
+      delay: 10
+      until: worker_ready.rc == 0
+
+    - name: Afficher l'état final de tous les noeuds
+      become: no
+      delegate_to: k8s-master
+      command: kubectl get nodes -o wide   # "-o wide" = afficher plus de détails
+      register: final_nodes_status
+      changed_when: false
+
+    - name: Résultat final — cluster complet
+      debug:
+        msg: "{{ final_nodes_status.stdout }}"
+        # Résultat attendu :
+        # NAME         STATUS   ROLES           VERSION
+        # k8s-master   Ready    control-plane   v1.29.0
+        # k8s-worker   Ready    <none>          v1.29.0

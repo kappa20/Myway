@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myway-backend
+  namespace: myway
+  labels:
+    app: myway-backend
+    component: backend
+    project: myway
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: myway-backend
+  template:
+    metadata:
+      labels:
+        app: myway-backend
+        component: backend
+        project: myway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
+    spec:
+      restartPolicy: Always
+      serviceAccountName: default
+
+      containers:
+        - name: myway-backend
+          image: kappa20/myway-backend:latest
+          imagePullPolicy: Always
+
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+
+          env:
+            - name: PORT
+              value: "5000"
+            - name: DB_PATH
+              value: "./database/myway.db"
+            - name: UPLOAD_DIR
+              value: "./uploads"
+            - name: NODE_ENV
+              value: "production"
+
+          # Health checks
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 5000
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
+
+          # Resource requests and limits
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+          # Volume mounts
+          volumeMounts:
+            - name: db-storage
+              mountPath: /app/database
+            - name: uploads-storage
+              mountPath: /app/uploads
+
+          # Security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+
+      # Volumes
+      volumes:
+        - name: db-storage
+          emptyDir: {}
+        - name: uploads-storage
+          emptyDir: {}

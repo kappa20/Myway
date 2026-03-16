@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: myway
+  labels:
+    name: myway
+    project: devops-myway

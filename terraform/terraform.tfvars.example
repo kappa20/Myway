@@ -1,0 +1,25 @@
+# ═══════════════════════════════════════════════════════════════════
+# terraform.tfvars.example
+# ═══════════════════════════════════════════════════════════════════
+# Copy this file to terraform.tfvars and fill in your own values.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# terraform.tfvars is gitignored — never commit it.
+# ═══════════════════════════════════════════════════════════════════
+
+# AWS region — eu-west-1 (Ireland) is close to North Africa and has free tier
+aws_region = "eu-west-1"
+
+# EC2 instance type — t3.micro is free tier eligible (750h/month for 12 months)
+instance_type = "t3.micro"
+
+# Name of the SSH key pair that will be created on AWS
+key_name = "devops-myway-key"
+
+# Path to your SSH public key — generate with:
+#   ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+public_key_path = "~/.ssh/id_rsa.pub"
+
+# Project name used to tag all AWS resources (VPC, instances, security group...)
+project_name = "myway"

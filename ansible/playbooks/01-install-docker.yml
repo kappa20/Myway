@@ -1,0 +1,85 @@
+---
+# ═══════════════════════════════════════════════════════════════════
+# PLAYBOOK 1 : Installation de Docker
+# ═══════════════════════════════════════════════════════════════════
+# Un playbook Ansible = une liste de tâches automatisées à exécuter
+# sur des machines distantes via SSH.
+# C'est comme un script bash mais structuré et idempotent
+# (si tu l'exécutes 2 fois, il ne fait pas de dégâts).
+#
+# Ce playbook installe Docker sur le master ET le worker.
+# Docker = moteur de containers. Kubernetes s'en sert pour lancer les pods.
+#
+# COMMENT L'EXÉCUTER :
+#   cd ansible/
+#   ansible-playbook playbooks/01-install-docker.yml
+
+- name: Installer Docker sur tous les noeuds Kubernetes
+  hosts: all        # "all" = exécuter sur master ET worker (définis dans inventory.ini)
+  become: yes       # exécuter en tant que root (sudo) — nécessaire pour installer des paquets
+  gather_facts: yes # Ansible collecte des infos sur la machine (OS, IP...) avant d'exécuter
+
+  tasks:
+
+    # ─── TÂCHE 1 : Mettre à jour les paquets ─────────────────────
+    # Équivalent de "sudo yum update -y" sur Amazon Linux
+    - name: Mettre à jour tous les paquets système
+      command: yum update -y
+      changed_when: true
+
+    # ─── TÂCHE 2 : Installer Docker ──────────────────────────────
+    # On utilise "command" plutôt que le module "yum" pour éviter le conflit
+    # entre python3.8 (requis par la version locale d'Ansible) et python3-dnf
+    # (qui n'existe que pour python3.7 sur Amazon Linux 2).
+    - name: Installer Docker
+      command: yum install -y docker
+      args:
+        creates: /usr/bin/docker  # idempotent : ne ré-exécute pas si docker est déjà installé
+
+    # ─── TÂCHE 3 : Créer le groupe docker ────────────────────────
+    # Le groupe "docker" permet d'utiliser Docker sans sudo.
+    # Un utilisateur dans ce groupe peut faire "docker ps" sans être root.
+    - name: Créer le groupe docker
+      group:
+        name: docker
+        state: present
+
+    # ─── TÂCHE 4 : Démarrer et activer Docker ────────────────────
+    # state: started  = démarrer le service maintenant
+    # enabled: yes    = démarrer automatiquement au redémarrage de la VM
+    - name: Démarrer et activer le service Docker
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    # ─── TÂCHE 5 : Ajouter ec2-user au groupe docker ─────────────
+    # "ec2-user" = l'utilisateur par défaut des VMs Amazon Linux
+    # IMPORTANT : "append: yes" = ajouter au groupe SANS supprimer les autres groupes
+    # Sans "append: yes", l'utilisateur perdrait tous ses groupes existants !
+    - name: Ajouter ec2-user au groupe docker
+      user:
+        name: ec2-user
+        groups: docker
+        append: yes
+
+    # ─── TÂCHE 6 : Réinitialiser la connexion SSH ────────────────
+    # Ansible doit se reconnecter pour que le changement de groupe soit pris en compte.
+    # "meta: reset_connection" ferme et rouvre la connexion SSH.
+    - name: Réinitialiser la connexion SSH (pour appliquer le groupe docker)
+      meta: reset_connection
+
+    # ─── TÂCHE 7 : Vérifier l'installation ───────────────────────
+    # "register" = sauvegarder le résultat de la commande dans une variable Ansible
+    # "changed_when: false" = dire à Ansible que cette tâche ne "change" rien (vérification seulement)
+    - name: Vérifier que Docker est installé
+      command: docker --version
+      register: docker_version
+      changed_when: false
+
+    # ─── TÂCHE 8 : Afficher la version installée ─────────────────
+    # "debug" = afficher un message dans le terminal pendant l'exécution
+    # "{{ docker_version.stdout }}" = la sortie de la commande "docker --version"
+    - name: Afficher la version de Docker
+      debug:
+        msg: "✅ Docker installé : {{ docker_version.stdout }}"

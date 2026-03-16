@@ -36,3 +36,17 @@ backend/uploads/*
 
 tmpclaude-*-cwd
 .aider*
+
+# Terraform — never commit state or secrets
+terraform/.terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfvars
+terraform/terraoutput.txt
+*.tfstate
+*.tfstate.backup
+
+# SSH keys
+ssh/
+*.pem
+*.key
