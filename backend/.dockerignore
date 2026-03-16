@@ -1,7 +1,7 @@
 node_modules
 npm-debug.log
 .env
-*.db
+database/myway.db
 uploads/*
 !uploads/.gitkeep
 .git
