@@ -16,6 +16,9 @@ async function handleResponse(response) {
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(error.error || 'Request failed');
   }
+  if (response.status === 204 || response.headers.get('content-length') === '0') {
+    return null;
+  }
   return response.json();
 }
 
@@ -241,9 +244,11 @@ export const pomodoroAPI = {
 
 // Analytics API
 export const analyticsAPI = {
-  getOverview: async () => {
+  getOverview: async (filters = {}) => {
     const apiPrefix = getApiPrefix();
-    const response = await fetch(`${apiPrefix}/analytics/overview`);
+    const params = new URLSearchParams(filters);
+    const query = params.toString();
+    const response = await fetch(`${apiPrefix}/analytics/overview${query ? `?${query}` : ''}`);
     return handleResponse(response);
   },
 
@@ -271,5 +276,41 @@ export const analyticsAPI = {
     const apiPrefix = getApiPrefix();
     const response = await fetch(`${apiPrefix}/analytics/productivity-patterns`);
     return handleResponse(response);
+  },
+};
+
+// AI Chat API
+export const aiAPI = {
+  sendMessage: async (moduleId, message, history) => {
+    if (isDemoMode()) {
+      return {
+        getReader: () => {
+          let sent = false;
+          return {
+            read: async () => {
+              if (!sent) {
+                sent = true;
+                const text = 'data: {"content":"This is a demo. Connect a Gemini API key to use the AI assistant."}\n\ndata: [DONE]\n\n';
+                return { done: false, value: new TextEncoder().encode(text) };
+              }
+              return { done: true, value: undefined };
+            },
+          };
+        },
+      };
+    }
+
+    const response = await fetch(`${API_URL}/ai/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ moduleId, message, history }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'AI request failed' }));
+      throw new Error(error.error || 'AI request failed');
+    }
+
+    return response.body;
   },
 };

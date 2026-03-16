@@ -35,3 +35,4 @@ backend/uploads/*
 .claude/*
 
 tmpclaude-*-cwd
+.aider*

@@ -4,11 +4,15 @@ import ModuleCard from './ModuleCard';
 import ModuleForm from './ModuleForm';
 
 export default function ModuleList() {
-  const { modules, loading } = useModules();
+  const { modules, loading, error } = useModules();
   const [showForm, setShowForm] = useState(false);
 
   if (loading) {
     return <div className="loading">Loading modules...</div>;
+  }
+
+  if (error) {
+    return <div className="error-message">Failed to load modules: {error}</div>;
   }
 
   return (

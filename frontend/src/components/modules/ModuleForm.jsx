@@ -14,6 +14,7 @@ export default function ModuleForm({ module, onSuccess, onCancel }) {
     color: module?.color || '#3B82F6',
   });
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -25,6 +26,7 @@ export default function ModuleForm({ module, onSuccess, onCancel }) {
     }
 
     try {
+      setSubmitting(true);
       if (module) {
         await updateModule(module.id, formData);
       } else {
@@ -33,6 +35,8 @@ export default function ModuleForm({ module, onSuccess, onCancel }) {
       onSuccess();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -43,9 +47,9 @@ export default function ModuleForm({ module, onSuccess, onCancel }) {
       {error && <div className="error-message">{error}</div>}
 
       <div className="form-group">
-        <label htmlFor="name">Module Name *</label>
+        <label htmlFor="module-name">Module Name *</label>
         <input
-          id="name"
+          id="module-name"
           type="text"
           value={formData.name}
           onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -55,9 +59,9 @@ export default function ModuleForm({ module, onSuccess, onCancel }) {
       </div>
 
       <div className="form-group">
-        <label htmlFor="description">Description</label>
+        <label htmlFor="module-description">Description</label>
         <textarea
-          id="description"
+          id="module-description"
           value={formData.description}
           onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           placeholder="Brief description of the module"
@@ -82,10 +86,10 @@ export default function ModuleForm({ module, onSuccess, onCancel }) {
       </div>
 
       <div className="form-actions">
-        <button type="submit" className="btn-primary">
-          {module ? 'Update' : 'Create'}
+        <button type="submit" className="btn-primary" disabled={submitting}>
+          {submitting ? 'Saving...' : (module ? 'Update' : 'Create')}
         </button>
-        <button type="button" onClick={onCancel} className="btn-secondary">
+        <button type="button" onClick={onCancel} className="btn-secondary" disabled={submitting}>
           Cancel
         </button>
       </div>

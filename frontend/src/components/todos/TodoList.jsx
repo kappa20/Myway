@@ -6,7 +6,7 @@ import TodoForm from './TodoForm';
 
 export default function TodoList() {
   const { selectedModule } = useModules();
-  const { filteredTodos, filter, setFilter } = useTodos();
+  const { filteredTodos, filter, setFilter, error } = useTodos();
   const [showForm, setShowForm] = useState(false);
 
   if (!selectedModule) {
@@ -25,6 +25,8 @@ export default function TodoList() {
           {showForm ? 'Cancel' : '+ Add Todo'}
         </button>
       </div>
+
+      {error && <div className="error-message">{error}</div>}
 
       <div className="todo-filters">
         <button

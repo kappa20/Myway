@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { pomodoroAPI } from '../services/api';
 
 const PomodoroContext = createContext();
@@ -25,32 +25,15 @@ export function PomodoroProvider({ children }) {
 
   const intervalRef = useRef(null);
   const sessionStartTimeRef = useRef(null);
+  const handleTimerCompleteRef = useRef(null);
 
-  useEffect(() => {
-    if (isRunning && timeLeft > 0) {
-      intervalRef.current = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            handleTimerComplete();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    }
+  const switchMode = useCallback((newMode) => {
+    setMode(newMode);
+    setTimeLeft(DURATIONS[newMode]);
+    setIsRunning(false);
+  }, []);
 
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [isRunning, timeLeft]);
-
-  const handleTimerComplete = async () => {
+  const handleTimerComplete = useCallback(async () => {
     setIsRunning(false);
 
     // Save completed session
@@ -81,27 +64,47 @@ export function PomodoroProvider({ children }) {
 
     // Auto-switch mode
     if (mode === TIMER_MODES.WORK) {
-      const newSessions = sessionsCompleted + 1;
-      setSessionsCompleted(newSessions);
-
-      // Long break after 4 work sessions
-      if (newSessions % 4 === 0) {
-        switchMode(TIMER_MODES.LONG_BREAK);
-      } else {
-        switchMode(TIMER_MODES.SHORT_BREAK);
-      }
+      setSessionsCompleted(prev => {
+        const newSessions = prev + 1;
+        if (newSessions % 4 === 0) {
+          switchMode(TIMER_MODES.LONG_BREAK);
+        } else {
+          switchMode(TIMER_MODES.SHORT_BREAK);
+        }
+        return newSessions;
+      });
     } else {
       switchMode(TIMER_MODES.WORK);
     }
-  };
+  }, [currentSessionId, mode, switchMode]);
 
-  const switchMode = (newMode) => {
-    setMode(newMode);
-    setTimeLeft(DURATIONS[newMode]);
-    setIsRunning(false);
-  };
+  // Keep ref in sync with latest handleTimerComplete
+  useEffect(() => {
+    handleTimerCompleteRef.current = handleTimerComplete;
+  }, [handleTimerComplete]);
 
-  const start = async () => {
+  // Timer interval — only depends on isRunning
+  useEffect(() => {
+    if (isRunning) {
+      intervalRef.current = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            handleTimerCompleteRef.current();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [isRunning]);
+
+  const start = useCallback(async () => {
     // Request notification permission
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
@@ -124,9 +127,9 @@ export function PomodoroProvider({ children }) {
     }
 
     setIsRunning(true);
-  };
+  }, [selectedTodo, mode]);
 
-  const pause = async () => {
+  const pause = useCallback(async () => {
     setIsRunning(false);
 
     // Update session with current duration
@@ -140,9 +143,9 @@ export function PomodoroProvider({ children }) {
         console.error('Failed to update session:', error);
       }
     }
-  };
+  }, [currentSessionId]);
 
-  const reset = async () => {
+  const reset = useCallback(async () => {
     setIsRunning(false);
 
     // Mark session as cancelled if not completed
@@ -163,21 +166,42 @@ export function PomodoroProvider({ children }) {
     }
 
     setTimeLeft(DURATIONS[mode]);
-  };
+  }, [currentSessionId, mode]);
 
-  const startWithTodo = (todo) => {
+  const startWithTodo = useCallback(async (todo) => {
     setSelectedTodo(todo);
-    switchMode(TIMER_MODES.WORK);
-    setIsRunning(true);
-  };
+    setMode(TIMER_MODES.WORK);
+    setTimeLeft(DURATIONS[TIMER_MODES.WORK]);
 
-  const formatTime = (seconds) => {
+    // Request notification permission
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    // Create session record in database
+    try {
+      const session = await pomodoroAPI.createSession({
+        module_id: todo.module_id || null,
+        todo_id: todo.id || null,
+        session_type: TIMER_MODES.WORK,
+        planned_duration: DURATIONS[TIMER_MODES.WORK],
+      });
+      setCurrentSessionId(session.id);
+      sessionStartTimeRef.current = Date.now();
+    } catch (error) {
+      console.error('Failed to create session:', error);
+    }
+
+    setIsRunning(true);
+  }, []);
+
+  const formatTime = useCallback((seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
+  }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     mode,
     timeLeft,
     isRunning,
@@ -190,7 +214,7 @@ export function PomodoroProvider({ children }) {
     switchMode,
     startWithTodo,
     formatTime,
-  };
+  }), [mode, timeLeft, isRunning, selectedTodo, sessionsCompleted, start, pause, reset, switchMode, startWithTodo, formatTime]);
 
   return <PomodoroContext.Provider value={value}>{children}</PomodoroContext.Provider>;
 }

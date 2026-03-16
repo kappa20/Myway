@@ -10,6 +10,7 @@ export default function ResourceForm({ moduleId, onSuccess, onCancel }) {
     file: null,
   });
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -31,10 +32,13 @@ export default function ResourceForm({ moduleId, onSuccess, onCancel }) {
     }
 
     try {
+      setSubmitting(true);
       await createResource(moduleId, formData);
       onSuccess();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -50,9 +54,9 @@ export default function ResourceForm({ moduleId, onSuccess, onCancel }) {
       {error && <div className="error-message">{error}</div>}
 
       <div className="form-group">
-        <label htmlFor="title">Title *</label>
+        <label htmlFor="resource-title">Title *</label>
         <input
-          id="title"
+          id="resource-title"
           type="text"
           value={formData.title}
           onChange={(e) => setFormData({ ...formData, title: e.target.value })}
@@ -62,9 +66,9 @@ export default function ResourceForm({ moduleId, onSuccess, onCancel }) {
       </div>
 
       <div className="form-group">
-        <label htmlFor="type">Type *</label>
+        <label htmlFor="resource-type">Type *</label>
         <select
-          id="type"
+          id="resource-type"
           value={formData.type}
           onChange={(e) => setFormData({ ...formData, type: e.target.value, content: '', file: null })}
         >
@@ -76,9 +80,9 @@ export default function ResourceForm({ moduleId, onSuccess, onCancel }) {
 
       {formData.type === 'url' && (
         <div className="form-group">
-          <label htmlFor="content">URL *</label>
+          <label htmlFor="resource-url">URL *</label>
           <input
-            id="content"
+            id="resource-url"
             type="url"
             value={formData.content}
             onChange={(e) => setFormData({ ...formData, content: e.target.value })}
@@ -90,9 +94,9 @@ export default function ResourceForm({ moduleId, onSuccess, onCancel }) {
 
       {formData.type === 'note' && (
         <div className="form-group">
-          <label htmlFor="content">Note *</label>
+          <label htmlFor="resource-note">Note *</label>
           <textarea
-            id="content"
+            id="resource-note"
             value={formData.content}
             onChange={(e) => setFormData({ ...formData, content: e.target.value })}
             placeholder="Enter your notes here"
@@ -104,9 +108,9 @@ export default function ResourceForm({ moduleId, onSuccess, onCancel }) {
 
       {formData.type === 'file' && (
         <div className="form-group">
-          <label htmlFor="file">File *</label>
+          <label htmlFor="resource-file">File *</label>
           <input
-            id="file"
+            id="resource-file"
             type="file"
             onChange={handleFileChange}
             accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif,.zip,.rar"
@@ -117,10 +121,10 @@ export default function ResourceForm({ moduleId, onSuccess, onCancel }) {
       )}
 
       <div className="form-actions">
-        <button type="submit" className="btn-primary">
-          Add Resource
+        <button type="submit" className="btn-primary" disabled={submitting}>
+          {submitting ? 'Adding...' : 'Add Resource'}
         </button>
-        <button type="button" onClick={onCancel} className="btn-secondary">
+        <button type="button" onClick={onCancel} className="btn-secondary" disabled={submitting}>
           Cancel
         </button>
       </div>
