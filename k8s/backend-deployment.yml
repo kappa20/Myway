@@ -45,7 +45,7 @@ spec:
             - name: PORT
               value: "5000"
             - name: DB_PATH
-              value: "./database/myway.db"
+              value: "./data/myway.db"
             - name: UPLOAD_DIR
               value: "./uploads"
             - name: NODE_ENV
@@ -84,7 +84,7 @@ spec:
           # Volume mounts
           volumeMounts:
             - name: db-storage
-              mountPath: /app/database
+              mountPath: /app/data
             - name: uploads-storage
               mountPath: /app/uploads
 
