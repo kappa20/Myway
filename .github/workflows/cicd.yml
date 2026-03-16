@@ -93,10 +93,10 @@ jobs:
         with:
           context: ./backend
           push: true
+          no-cache: true
           tags: |
             ${{ env.IMAGE_BACKEND }}:latest
             ${{ env.IMAGE_BACKEND }}:${{ github.sha }}
-          cache-from: type=registry,ref=${{ env.IMAGE_BACKEND }}:buildcache
           cache-to: type=registry,ref=${{ env.IMAGE_BACKEND }}:buildcache,mode=max
 
       - name: Backend image pushed
