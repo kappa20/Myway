@@ -141,6 +141,7 @@ jobs:
 
       - name: Copy Kubernetes manifests to master node
         run: |
+          ssh -o ConnectTimeout=10 ec2-user@${{ secrets.MASTER_IP }} "mkdir -p /tmp/k8s-myway"
           scp -r k8s/ ec2-user@${{ secrets.MASTER_IP }}:/tmp/k8s-myway/
 
       - name: Apply Kubernetes manifests
