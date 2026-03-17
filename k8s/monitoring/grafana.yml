@@ -1,13 +1,134 @@
-# ── Grafana Secret ────────────────────────────────────────────────
-# Before applying this file, create the secret with your own password:
+# ═══════════════════════════════════════════════════════════════════
+# Grafana – Configuration améliorée avec dashboards automatiques [AMÉLIORÉ]
+# Fichier : k8s/monitoring/grafana.yml
 #
+# Améliorations :
+#   • Provisioning automatique de la datasource Prometheus
+#   • Dashboard Myway pré-configuré (pods, CPU, mémoire)
+#   • Version fixée (pas :latest)
+#   • Liveness + Readiness probes
+#
+# SÉCURITÉ : Ne jamais stocker le mot de passe dans ce fichier.
+# Créer le secret avant de déployer :
 #   kubectl create secret generic grafana-secret \
-#     --from-literal=admin-password='<YOUR_STRONG_PASSWORD>' \
+#     --from-literal=admin-password='<MON_MOT_DE_PASSE_FORT>' \
 #     -n myway
-#
-# The password is NOT stored in this file.
-# Do NOT add a Secret manifest with a real password to git.
+# ═══════════════════════════════════════════════════════════════════
+
+# ── ConfigMap : datasource Prometheus (provisioning automatique) ────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: myway
+  labels:
+    app: grafana
+    component: monitoring
+    project: myway
+data:
+  datasource.yml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        jsonData:
+          timeInterval: "15s"
+
 ---
+# ── ConfigMap : dashboard Myway (provisionné automatiquement) ───────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-config
+  namespace: myway
+  labels:
+    app: grafana
+    component: monitoring
+data:
+  dashboard-provider.yml: |
+    apiVersion: 1
+    providers:
+      - name: 'myway-dashboards'
+        orgId: 1
+        folder: 'Myway'
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards
+
+  myway-dashboard.json: |
+    {
+      "title": "Myway – Application Monitoring",
+      "uid": "myway-main",
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Pods Running",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "targets": [{
+            "expr": "count(kube_pod_status_ready{namespace=\"myway\", condition=\"true\"})",
+            "legendFormat": "Pods Ready"
+          }],
+          "options": { "colorMode": "background", "graphMode": "none" },
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "steps": [
+                  { "color": "red",   "value": 0 },
+                  { "color": "green", "value": 1 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": 2,
+          "title": "CPU Usage (Backend)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "targets": [{
+            "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"myway\", pod=~\"myway-backend.*\"}[5m])) by (pod)",
+            "legendFormat": "{{ pod }}"
+          }]
+        },
+        {
+          "id": 3,
+          "title": "Memory Usage (Backend)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "targets": [{
+            "expr": "sum(container_memory_working_set_bytes{namespace=\"myway\", pod=~\"myway-backend.*\"}) by (pod)",
+            "legendFormat": "{{ pod }}"
+          }],
+          "fieldConfig": {
+            "defaults": { "unit": "bytes" }
+          }
+        },
+        {
+          "id": 4,
+          "title": "HTTP Request Rate (API)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+          "targets": [{
+            "expr": "sum(rate(http_requests_total{namespace=\"myway\"}[5m])) by (method, path)",
+            "legendFormat": "{{ method }} {{ path }}"
+          }]
+        }
+      ]
+    }
+
+---
+# ── Deployment Grafana ───────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,11 +151,13 @@ spec:
     spec:
       containers:
         - name: grafana
-          image: grafana/grafana:latest
+          image: grafana/grafana:10.4.0   # version fixée
           ports:
             - containerPort: 3000
               name: web
           env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: "admin"
             - name: GF_SECURITY_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -42,8 +165,26 @@ spec:
                   key: admin-password
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
             - name: GF_INSTALL_PLUGINS
-              value: "grafana-clock-panel"
+              value: "grafana-clock-panel,grafana-piechart-panel"
+            # Désactiver la télémétrie Grafana
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_CHECK_FOR_UPDATES
+              value: "false"
+          volumeMounts:
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: grafana-dashboard-config
+              mountPath: /etc/grafana/provisioning/dashboards/dashboard-provider.yml
+              subPath: dashboard-provider.yml
+            - name: grafana-dashboard-json
+              mountPath: /var/lib/grafana/dashboards/myway-dashboard.json
+              subPath: myway-dashboard.json
+            - name: grafana-data
+              mountPath: /var/lib/grafana
           resources:
             requests:
               cpu: 100m
@@ -57,8 +198,37 @@ spec:
               port: 3000
             initialDelaySeconds: 30
             periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 2
+      volumes:
+        - name: grafana-datasources
+          configMap:
+            name: grafana-datasources
+        - name: grafana-dashboard-config
+          configMap:
+            name: grafana-dashboard-config
+            items:
+              - key: dashboard-provider.yml
+                path: dashboard-provider.yml
+        - name: grafana-dashboard-json
+          configMap:
+            name: grafana-dashboard-config
+            items:
+              - key: myway-dashboard.json
+                path: myway-dashboard.json
+        - name: grafana-data
+          emptyDir: {}
 
 ---
+# ── Service Grafana ──────────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:

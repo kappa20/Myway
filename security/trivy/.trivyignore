@@ -1,0 +1,17 @@
+# ═══════════════════════════════════════════════════════════════════
+# .trivyignore – Vulnérabilités ignorées temporairement
+# Fichier : security/trivy/.trivyignore
+#
+# Format : CVE-XXXX-XXXXX [expiry_date] [title]
+#
+# IMPORTANT : Chaque entrée DOIT avoir :
+#   • Une date d'expiration (max 90 jours)
+#   • Un commentaire de justification
+#
+# Exemple :
+# CVE-2023-12345 exp:2024-06-01 # Pas de fix disponible – tracker: #42
+# ═══════════════════════════════════════════════════════════════════
+
+# Aucune vulnérabilité ignorée pour l'instant.
+# Ce fichier doit être rempli uniquement après validation de l'équipe sécurité
+# et avec une date d'expiration courte.

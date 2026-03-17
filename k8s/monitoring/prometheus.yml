@@ -1,3 +1,123 @@
+# ═══════════════════════════════════════════════════════════════════
+# Prometheus – Configuration améliorée  [AMÉLIORÉ]
+# Fichier : k8s/monitoring/prometheus.yml
+#
+# Améliorations par rapport à la version initiale :
+#   • ConfigMap avec prometheus.yml pour scraper les pods Myway
+#   • Volume monté pour persister la config
+#   • Règles d'alerte pour CPU/mémoire/pods down
+# ═══════════════════════════════════════════════════════════════════
+
+# ── ConfigMap : configuration de scraping ───────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: myway
+  labels:
+    app: prometheus
+    component: monitoring
+    project: myway
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval:     15s   # fréquence de scraping
+      evaluation_interval: 15s   # fréquence d'évaluation des règles
+
+    rule_files:
+      - "/etc/prometheus/rules/*.yml"
+
+    scrape_configs:
+      # ── Prometheus lui-même ──────────────────────────────────────
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      # ── Backend Myway ────────────────────────────────────────────
+      # Scrape automatique via annotations Kubernetes sur les pods
+      - job_name: 'myway-backend'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ['myway']
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: app
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+
+      # ── Node exporter (métriques système des nœuds) ──────────────
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+  # ── Règles d'alerte ──────────────────────────────────────────────
+  alert-rules.yml: |
+    groups:
+      - name: myway-alerts
+        rules:
+          # Alerte si un pod est down depuis plus de 1 min
+          - alert: PodDown
+            expr: kube_pod_status_ready{namespace="myway", condition="true"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Pod {{ $labels.pod }} is down"
+              description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is not ready for more than 1 minute."
+
+          # Alerte si CPU > 80% depuis 5 min
+          - alert: HighCPUUsage
+            expr: |
+              sum(rate(container_cpu_usage_seconds_total{namespace="myway"}[5m])) by (pod)
+              / sum(kube_pod_container_resource_limits{namespace="myway", resource="cpu"}) by (pod)
+              > 0.8
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High CPU usage on pod {{ $labels.pod }}"
+              description: "CPU usage is above 80% for 5 minutes on pod {{ $labels.pod }}."
+
+          # Alerte si mémoire > 85% depuis 5 min
+          - alert: HighMemoryUsage
+            expr: |
+              sum(container_memory_working_set_bytes{namespace="myway"}) by (pod)
+              / sum(kube_pod_container_resource_limits{namespace="myway", resource="memory"}) by (pod)
+              > 0.85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High memory usage on pod {{ $labels.pod }}"
+              description: "Memory usage is above 85% for 5 minutes on pod {{ $labels.pod }}."
+
+          # Alerte si le déploiement a 0 replica disponible
+          - alert: DeploymentUnavailable
+            expr: kube_deployment_status_available_replicas{namespace="myway"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Deployment {{ $labels.deployment }} has no available replicas"
+
+---
+# ── Deployment Prometheus ────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,21 +138,58 @@ spec:
         app: prometheus
         component: monitoring
     spec:
+      # RBAC : Prometheus a besoin de lire les pods/nodes
+      serviceAccountName: prometheus-sa
       containers:
         - name: prometheus
-          image: prom/prometheus:latest
+          image: prom/prometheus:v2.51.0    # version fixée (pas :latest en prod)
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=7d"   # garder 7 jours de métriques
+            - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+            - "--web.console.templates=/usr/share/prometheus/consoles"
+            - "--web.enable-lifecycle"             # permet le reload à chaud
           ports:
             - containerPort: 9090
               name: web
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+            - name: prometheus-config
+              mountPath: /etc/prometheus/rules/alert-rules.yml
+              subPath: alert-rules.yml
+            - name: prometheus-data
+              mountPath: /prometheus
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               cpu: 500m
               memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+        - name: prometheus-data
+          emptyDir: {}
 
 ---
+# ── Service Prometheus ───────────────────────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -49,3 +206,41 @@ spec:
       port: 9090
       targetPort: 9090
       nodePort: 30090
+
+---
+# ── ServiceAccount + ClusterRole pour Prometheus ────────────────────
+# Prometheus a besoin de lire les pods, nodes et services K8s
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-sa
+  namespace: myway
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-clusterrole
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions", "apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-clusterrolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-clusterrole
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-sa
+    namespace: myway
