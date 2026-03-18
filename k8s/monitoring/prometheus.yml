@@ -59,12 +59,22 @@ data:
             target_label: namespace
 
       # ── Node exporter (métriques système des nœuds) ──────────────
-      - job_name: 'kubernetes-nodes'
+      - job_name: 'node-exporter'
         kubernetes_sd_configs:
-          - role: node
+          - role: pod
+            namespaces:
+              names: ['myway']
         relabel_configs:
-          - action: labelmap
-            regex: __meta_kubernetes_node_label_(.+)
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: node-exporter
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+          - source_labels: [__address__]
+            action: replace
+            regex: ([^:]+)(?::\d+)?
+            replacement: $1:9100
+            target_label: __address__
 
   # ── Règles d'alerte ──────────────────────────────────────────────
   alert-rules.yml: |
