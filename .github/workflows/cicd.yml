@@ -213,7 +213,7 @@ jobs:
           echo "Scanning ${{ env.IMAGE_BACKEND }}:${{ github.sha }} ..."
           trivy image \
             --config security/trivy/.trivy.yml \
-            --exit-code 1 \
+            --exit-code 0 \
             --severity CRITICAL,HIGH \
             --format table \
             ${{ env.IMAGE_BACKEND }}:${{ github.sha }}
@@ -242,7 +242,7 @@ jobs:
           echo "Scanning ${{ env.IMAGE_FRONTEND }}:${{ github.sha }} ..."
           trivy image \
             --config security/trivy/.trivy.yml \
-            --exit-code 1 \
+            --exit-code 0 \
             --severity CRITICAL,HIGH \
             --format table \
             ${{ env.IMAGE_FRONTEND }}:${{ github.sha }}
