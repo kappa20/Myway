@@ -1,0 +1,62 @@
+# ═══════════════════════════════════════════════════════════════════
+# HorizontalPodAutoscaler – Backend Myway  [NOUVEAU]
+# Fichier : k8s/hpa/backend-hpa.yml
+#
+# Le HPA scale automatiquement le nombre de pods backend en fonction
+# de la charge CPU et mémoire.
+#
+# Prérequis : metrics-server doit être installé dans le cluster
+#   kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+# ═══════════════════════════════════════════════════════════════════
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: myway-backend-hpa
+  namespace: myway
+  labels:
+    app: myway-backend
+    component: autoscaling
+    project: myway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: myway-backend
+
+  # Nombre de replicas min / max
+  minReplicas: 1
+  maxReplicas: 5
+
+  metrics:
+    # Scale up si CPU > 70%
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+    # Scale up si mémoire > 80%
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+  behavior:
+    # Scale UP rapide (pics de charge)
+    scaleUp:
+      stabilizationWindowSeconds: 60     # attendre 60s avant de rescaler
+      policies:
+        - type: Pods
+          value: 2                        # ajouter max 2 pods à la fois
+          periodSeconds: 60
+
+    # Scale DOWN prudent (éviter les flaps)
+    scaleDown:
+      stabilizationWindowSeconds: 300    # attendre 5 min avant de réduire
+      policies:
+        - type: Pods
+          value: 1                        # supprimer max 1 pod à la fois
+          periodSeconds: 120

@@ -1,0 +1,64 @@
+# ═══════════════════════════════════════════════════════════════════
+# Trivy – Configuration de scan de sécurité
+# Fichier : security/trivy/.trivy.yml
+#
+# Trivy est un scanner de vulnérabilités open-source d'Aqua Security.
+# Il analyse :
+#   • Les packages OS (Alpine, Ubuntu, etc.)
+#   • Les dépendances d'applications (npm, pip, etc.)
+#   • Les mauvaises configurations Dockerfile/K8s
+#   • Les secrets exposés dans l'image
+# ═══════════════════════════════════════════════════════════════════
+
+# ── Paramètres globaux ──────────────────────────────────────────────
+timeout: 10m0s
+cache:
+  dir: /tmp/.trivy-cache
+
+# ── Niveau de sévérité analysé ──────────────────────────────────────
+# CRITICAL → arrêt immédiat du pipeline
+# HIGH     → arrêt du pipeline
+# MEDIUM   → affiché mais ne bloque pas
+# LOW      → ignoré en CI (trop de bruit)
+severity:
+  - CRITICAL
+  - HIGH
+  - MEDIUM
+
+# ── Types de vulnérabilités recherchées ─────────────────────────────
+vuln-type:
+  - os          # vulnérabilités du système de base (Alpine, etc.)
+  - library     # dépendances npm, pip, etc.
+
+# ── Scanners activés ────────────────────────────────────────────────
+scanners:
+  - vuln        # CVEs connus
+  - secret      # secrets exposés (clés API, mots de passe, tokens)
+  - misconfig   # mauvaises configurations Dockerfile/K8s
+
+# ── Secrets : patterns supplémentaires ─────────────────────────────
+secret:
+  config: security/trivy/trivy-secret.yml
+
+# ── Ignorer les vulnérabilités acceptées ────────────────────────────
+# Si une vulnérabilité n'a pas encore de fix disponible, on peut
+# l'ignorer temporairement avec une justification et une date d'expiration
+ignore-policy: security/trivy/.trivyignore
+
+# ── Sortie ──────────────────────────────────────────────────────────
+format: table
+output: ""
+
+# ── Bases de données de vulnérabilités ─────────────────────────────
+db:
+  repository: ghcr.io/aquasecurity/trivy-db
+
+# ── Options avancées ────────────────────────────────────────────────
+image:
+  removed-pkgs: true    # inclure les packages supprimés dans le rapport
+
+skip-dirs:
+  - node_modules
+  - .git
+  - dist
+  - build

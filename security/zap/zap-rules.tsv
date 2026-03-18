@@ -1,0 +1,58 @@
+# ═══════════════════════════════════════════════════════════════════
+# OWASP ZAP – Règles de scan personnalisées
+# Fichier : security/zap/zap-rules.tsv
+#
+# Format : <rule_id>\t<WARN|IGNORE|FAIL>\t<description>
+#
+# FAIL   → le pipeline échoue si cette vulnérabilité est détectée
+# WARN   → avertissement uniquement, le pipeline continue
+# IGNORE → règle ignorée (à justifier)
+#
+# Liste complète des règles : https://www.zaproxy.org/docs/alerts/
+# ═══════════════════════════════════════════════════════════════════
+
+# ── Vulnérabilités critiques → FAIL ────────────────────────────────
+10020	FAIL	Anti-clickjacking Header (X-Frame-Options manquant)
+10021	FAIL	X-Content-Type-Options Header manquant
+10038	FAIL	Content Security Policy (CSP) manquant
+10045	FAIL	Source Code Disclosure (exposition de code source)
+10048	FAIL	Remote Code Execution - Shell Injection
+10095	FAIL	Backup File Disclosure
+20012	FAIL	Anti-CSRF Tokens Check
+40012	FAIL	Cross Site Scripting (Reflected)
+40014	FAIL	Cross Site Scripting (Persistent)
+40016	FAIL	Cross Site Scripting (Persistent) - Prime
+40017	FAIL	Cross Site Scripting (Persistent) - Spider
+40018	FAIL	SQL Injection
+40019	FAIL	SQL Injection - MySQL
+40020	FAIL	SQL Injection - Hypersonic SQL
+40021	FAIL	SQL Injection - Oracle
+40022	FAIL	SQL Injection - SQLite
+40024	FAIL	SQL Injection - SQLite (Hibernate)
+40025	FAIL	Proxy Disclosure
+90019	FAIL	Server Side Code Injection - PHP Code Injection
+90020	FAIL	Remote OS Command Injection
+
+# ── Alertes importantes → WARN ──────────────────────────────────────
+10010	WARN	Cookie Without Secure Flag
+10011	WARN	Cookie Without SameSite Attribute
+10015	WARN	Incomplete or No Cache-control Header Set
+10023	WARN	Information Disclosure - Debug Error Messages
+10024	WARN	Information Disclosure - Sensitive Informations in URL
+10025	WARN	Information Disclosure - Sensitive Information in HTTP Referrer Header
+10027	WARN	Information Disclosure - Suspicious Comments
+10032	WARN	Viewstate without MAC Signature (WARN)
+10036	WARN	Server Leaks Version Information via "Server" HTTP Response Header Field
+10037	WARN	Server Leaks Information via "X-Powered-By" HTTP Response Header Field
+10040	WARN	Secure Pages Include Mixed Content
+10054	WARN	Cookie Without SameSite Attribute
+10055	WARN	CSP: Wildcard Directive
+10063	WARN	Permissions Policy Header Not Set
+10096	WARN	Timestamp Disclosure - Unix
+10097	WARN	Hash Disclosure - MD4 / MD5
+10098	WARN	Cross-Domain Misconfiguration (CORS)
+10105	WARN	Weak Authentication Method
+10202	WARN	Absence of Anti-CSRF Tokens
+
+# ── Règles ignorées (faux positifs connus) ──────────────────────────
+# 10003	IGNORE	# Obsolete Content Security Policy (ignoré car géré par nginx)
