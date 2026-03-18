@@ -36,14 +36,10 @@ scanners:
   - secret      # secrets exposés (clés API, mots de passe, tokens)
   - misconfig   # mauvaises configurations Dockerfile/K8s
 
-# ── Secrets : patterns supplémentaires ─────────────────────────────
-secret:
-  config: security/trivy/trivy-secret.yml
-
 # ── Ignorer les vulnérabilités acceptées ────────────────────────────
 # Si une vulnérabilité n'a pas encore de fix disponible, on peut
 # l'ignorer temporairement avec une justification et une date d'expiration
-ignore-policy: security/trivy/.trivyignore
+ignorefile: security/trivy/.trivyignore
 
 # ── Sortie ──────────────────────────────────────────────────────────
 format: table
