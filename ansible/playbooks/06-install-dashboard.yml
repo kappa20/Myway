@@ -1,0 +1,159 @@
+---
+# ═══════════════════════════════════════════════════════════════════
+# PLAYBOOK 6 : Installation du Kubernetes Dashboard
+# ═══════════════════════════════════════════════════════════════════
+#
+# Ce playbook s'exécute UNIQUEMENT sur le master node.
+# Il fait 4 choses :
+#
+#   1. Installe le Kubernetes Dashboard depuis l'URL officielle
+#   2. Applique dashboard.yml (admin-user ServiceAccount + token Secret)
+#   3. Récupère le token admin automatiquement
+#   4. Sauvegarde le token dans kubernetes_token.txt sur la machine locale
+#
+# IDEMPOTENCE :
+#   - kubectl apply est idempotent sur tous les manifestes
+#   - Le token est relu à chaque exécution (comportement attendu)
+#
+# COMMENT L'EXÉCUTER :
+#   cd ansible/
+#   ansible-playbook playbooks/06-install-dashboard.yml
+#
+# ACCÈS AU DASHBOARD (après exécution) :
+#   1. Sur ta machine locale :
+#      unalias kubectl
+#      kubectl --kubeconfig ~/.kube/myway-config proxy
+#   2. Ouvrir :
+#      http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/
+#   3. Utiliser le token dans kubernetes_token.txt
+# ═══════════════════════════════════════════════════════════════════
+
+- name: Installer le Kubernetes Dashboard
+  hosts: master
+  become: no          # kubectl s'exécute en tant que ec2-user
+  gather_facts: yes
+
+  vars:
+    dashboard_version: "v2.7.0"
+    dashboard_url: "https://raw.githubusercontent.com/kubernetes/dashboard/{{ dashboard_version }}/aio/deploy/recommended.yaml"
+    dashboard_namespace: "kubernetes-dashboard"
+    k8s_manifests_path: "/home/ec2-user/k8s"
+    # Chemin LOCAL où sera sauvegardé le token (sur ta machine)
+    local_token_path: "{{ playbook_dir }}/../../kubernetes_token.txt"
+
+  tasks:
+
+    # ─── TÂCHE 1 : Installer le Dashboard Kubernetes ────────────────
+    # "kubectl apply -f URL" = télécharge et applique le manifeste officiel.
+    # Idempotent : si le dashboard est déjà installé, kubectl dit "unchanged".
+    - name: Appliquer le manifeste officiel du Kubernetes Dashboard ({{ dashboard_version }})
+      command: kubectl apply -f {{ dashboard_url }}
+      register: dashboard_install
+      changed_when: "'configured' in dashboard_install.stdout or 'created' in dashboard_install.stdout"
+      retries: 3
+      delay: 10
+      until: dashboard_install.rc == 0
+
+    - name: Confirmer l'installation du dashboard
+      debug:
+        msg: "Kubernetes Dashboard {{ dashboard_version }} installe"
+
+    # ─── TÂCHE 2 : Attendre que le namespace kubernetes-dashboard existe ─
+    - name: Attendre que le namespace kubernetes-dashboard soit créé
+      command: kubectl get namespace {{ dashboard_namespace }}
+      register: ns_ready
+      retries: 10
+      delay: 5
+      until: ns_ready.rc == 0
+
+    # ─── TÂCHE 3 : Copier dashboard.yml vers le master ──────────────
+    - name: Créer le répertoire k8s sur le master
+      become: yes
+      file:
+        path: "{{ k8s_manifests_path }}"
+        state: directory
+        owner: ec2-user
+        group: ec2-user
+        mode: "0755"
+
+    - name: Copier dashboard.yml vers le master
+      copy:
+        src: "{{ playbook_dir }}/../../Myway/k8s/dashboard.yml"
+        dest: "{{ k8s_manifests_path }}/dashboard.yml"
+
+    # ─── TÂCHE 4 : Appliquer dashboard.yml ──────────────────────────
+    # dashboard.yml contient :
+    #   - ServiceAccount admin-user (namespace: kubernetes-dashboard)
+    #   - ClusterRoleBinding admin-user → cluster-admin
+    #   - Secret admin-user-token (long-lived token Kubernetes)
+    - name: Appliquer dashboard.yml (admin-user + ClusterRoleBinding + Secret)
+      command: kubectl apply -f {{ k8s_manifests_path }}/dashboard.yml
+      register: dashboard_rbac
+      changed_when: "'configured' in dashboard_rbac.stdout or 'created' in dashboard_rbac.stdout"
+
+    - name: Confirmer la création du ServiceAccount admin-user
+      debug:
+        msg: "admin-user ServiceAccount + ClusterRoleBinding + token Secret appliques"
+
+    # ─── TÂCHE 5 : Attendre que le token soit disponible ────────────
+    # Le token du Secret met quelques secondes à être peuplé par le
+    # token controller de Kubernetes.
+    - name: Attendre que le token admin-user-token soit peuplé
+      shell: |
+        kubectl get secret admin-user-token \
+          -n {{ dashboard_namespace }} \
+          -o jsonpath='{.data.token}' 2>/dev/null | wc -c
+      register: token_check
+      retries: 12
+      delay: 5
+      until: token_check.rc == 0 and token_check.stdout | int > 10
+      changed_when: false
+
+    # ─── TÂCHE 6 : Récupérer le token admin ─────────────────────────
+    # Même commande que dans DASHBOARD.md — récupère et décode le token JWT.
+    - name: Récupérer le token admin du dashboard
+      shell: |
+        kubectl get secret admin-user-token \
+          -n {{ dashboard_namespace }} \
+          -o jsonpath='{.data.token}' | base64 --decode
+      register: admin_token
+      changed_when: false
+
+    # ─── TÂCHE 7 : Sauvegarder le token localement ──────────────────
+    # "local_action" = s'exécute sur la machine locale (pas la VM distante).
+    # Même pattern que le playbook 03 qui sauvegarde le join_command.
+    - name: Sauvegarder le token dans kubernetes_token.txt (local)
+      local_action: copy content="{{ admin_token.stdout }}" dest="{{ local_token_path }}" mode="0600"
+      become: no
+
+    - name: Confirmer la sauvegarde du token
+      debug:
+        msg: "Token sauvegarde dans kubernetes_token.txt (mode 0600)"
+
+    # ─── TÂCHE 8 : Vérifier les pods du dashboard ───────────────────
+    - name: Vérifier les pods du dashboard
+      command: kubectl get pods -n {{ dashboard_namespace }}
+      register: dashboard_pods
+      changed_when: false
+
+    - name: État des pods du dashboard
+      debug:
+        msg: "{{ dashboard_pods.stdout_lines }}"
+
+    # ─── TÂCHE 9 : Afficher les instructions d'accès ────────────────
+    - name: Afficher les instructions d'accès au Dashboard
+      debug:
+        msg:
+          - "================================================================"
+          - "  KUBERNETES DASHBOARD — INSTRUCTIONS D'ACCES"
+          - "================================================================"
+          - "  1. Sur ta machine locale, lance le proxy kubectl :"
+          - "     unalias kubectl"
+          - "     kubectl --kubeconfig ~/.kube/myway-config proxy"
+          - ""
+          - "  2. Ouvre dans ton navigateur :"
+          - "     http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/https:kubernetes-dashboard:/proxy/"
+          - ""
+          - "  3. Connexion avec Token — utilise le fichier :"
+          - "     cat kubernetes_token.txt"
+          - "================================================================"

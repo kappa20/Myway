@@ -1,0 +1,208 @@
+---
+# ═══════════════════════════════════════════════════════════════════
+# PLAYBOOK 5 : Installation du monitoring
+#              metrics-server + Prometheus + Grafana
+# ═══════════════════════════════════════════════════════════════════
+#
+# Ce playbook s'exécute UNIQUEMENT sur le master node.
+# Il fait 4 choses :
+#
+#   1. Installe metrics-server  → requis par le HPA pour lire CPU/mémoire
+#   2. Crée grafana-secret      → mot de passe Grafana généré aléatoirement
+#   3. Applique prometheus.yml  → déploie Prometheus dans le namespace myway
+#   4. Applique grafana.yml     → déploie Grafana dans le namespace myway
+#
+# PRÉREQUIS :
+#   - Cluster Kubernetes initialisé (playbooks 03 + 04 exécutés)
+#   - Namespace "myway" créé (ou sera créé par ce playbook)
+#   - Fichiers k8s/monitoring/ présents dans le repo local
+#
+# IDEMPOTENCE :
+#   - metrics-server  : kubectl apply est idempotent
+#   - grafana-secret  : --dry-run=client | kubectl apply -f - → ne recrée pas si déjà présent
+#   - Prometheus/Grafana : kubectl apply est idempotent
+#
+# COMMENT L'EXÉCUTER :
+#   cd ansible/
+#   ansible-playbook playbooks/05-install-monitoring.yml
+# ═══════════════════════════════════════════════════════════════════
+
+- name: Installer metrics-server, Prometheus et Grafana
+  hosts: master
+  become: no          # kubectl s'exécute en tant que ec2-user (pas root)
+  gather_facts: yes
+
+  vars:
+    metrics_server_url: "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+    k8s_manifests_path: "/home/ec2-user/k8s"
+    grafana_secret_name: "grafana-secret"
+    myway_namespace: "myway"
+
+  tasks:
+
+    # ─── TÂCHE 1 : Installer metrics-server ─────────────────────────
+    # On télécharge le manifeste, on injecte --kubelet-insecure-tls
+    # directement dedans via sed, puis on l'applique en une seule passe.
+    # C'est plus fiable qu'un patch séparé car le Deployment démarre
+    # directement avec le bon arg, sans cycle crash/restart.
+    #
+    # --kubelet-insecure-tls : requis sur AWS EC2 — le certificat TLS
+    # de kubelet n'est pas signé par une CA connue de metrics-server.
+    - name: Télécharger, patcher et appliquer le manifeste metrics-server
+      shell: |
+        curl -fsSL {{ metrics_server_url }} \
+          | sed 's/args:/args:\n        - --kubelet-insecure-tls/' \
+          | kubectl apply -f -
+      register: metrics_server_apply
+      changed_when: "'configured' in metrics_server_apply.stdout or 'created' in metrics_server_apply.stdout"
+      retries: 3
+      delay: 10
+      until: metrics_server_apply.rc == 0
+
+    - name: Attendre que metrics-server soit disponible (timeout 3 min)
+      command: >
+        kubectl rollout status deployment/metrics-server
+        -n kube-system
+        --timeout=180s
+      register: metrics_ready
+      retries: 3
+      delay: 15
+      until: metrics_ready.rc == 0
+
+    - name: Confirmer metrics-server
+      debug:
+        msg: "metrics-server operationnel dans kube-system"
+
+    # ─── TÂCHE 2 : S'assurer que le namespace myway existe ──────────
+    - name: Créer le namespace myway si absent
+      shell: |
+        kubectl get namespace {{ myway_namespace }} > /dev/null 2>&1 || \
+        kubectl create namespace {{ myway_namespace }}
+      register: ns_check
+      changed_when: "'created' in ns_check.stdout"
+
+    # ─── TÂCHE 3 : Créer grafana-secret ─────────────────────────────
+    # Génère un mot de passe aléatoire et crée le Secret Kubernetes.
+    # La commande "--dry-run=client -o yaml | kubectl apply -f -" est
+    # idempotente : si le secret existe déjà, elle retourne "unchanged".
+    - name: Vérifier si grafana-secret existe déjà
+      command: kubectl get secret {{ grafana_secret_name }} -n {{ myway_namespace }}
+      register: grafana_secret_check
+      failed_when: false
+      changed_when: false
+
+    - name: Générer un mot de passe Grafana aléatoire
+      command: openssl rand -base64 20
+      register: grafana_password_raw
+      when: grafana_secret_check.rc != 0
+      changed_when: false
+      no_log: true
+
+    - name: Créer grafana-secret dans Kubernetes
+      shell: |
+        kubectl create secret generic {{ grafana_secret_name }} \
+          --from-literal=admin-password='{{ grafana_password_raw.stdout }}' \
+          -n {{ myway_namespace }} \
+          --dry-run=client -o yaml | kubectl apply -f -
+      when: grafana_secret_check.rc != 0
+      no_log: true
+
+    - name: "grafana-secret : créé"
+      debug:
+        msg: "grafana-secret cree dans le namespace {{ myway_namespace }}"
+      when: grafana_secret_check.rc != 0
+
+    - name: "grafana-secret : déjà présent (skip)"
+      debug:
+        msg: "grafana-secret existait deja — mot de passe inchange"
+      when: grafana_secret_check.rc == 0
+
+    # ─── TÂCHE 4 : Copier les manifestes k8s sur le master ──────────
+    - name: Créer les répertoires k8s/monitoring sur le master
+      become: yes
+      file:
+        path: "{{ k8s_manifests_path }}/monitoring"
+        state: directory
+        owner: ec2-user
+        group: ec2-user
+        mode: "0755"
+
+    - name: Copier prometheus.yml vers le master
+      copy:
+        src: "{{ playbook_dir }}/../../Myway/k8s/monitoring/prometheus.yml"
+        dest: "{{ k8s_manifests_path }}/monitoring/prometheus.yml"
+
+    - name: Copier grafana.yml vers le master
+      copy:
+        src: "{{ playbook_dir }}/../../Myway/k8s/monitoring/grafana.yml"
+        dest: "{{ k8s_manifests_path }}/monitoring/grafana.yml"
+
+    # ─── TÂCHE 5 : Déployer Prometheus ──────────────────────────────
+    - name: Appliquer prometheus.yml
+      command: kubectl apply -f {{ k8s_manifests_path }}/monitoring/prometheus.yml
+      register: prometheus_apply
+      changed_when: "'configured' in prometheus_apply.stdout or 'created' in prometheus_apply.stdout"
+
+    - name: Attendre que Prometheus soit prêt
+      command: >
+        kubectl rollout status deployment/prometheus
+        -n {{ myway_namespace }}
+        --timeout=180s
+      register: prometheus_ready
+      retries: 3
+      delay: 10
+      until: prometheus_ready.rc == 0
+
+    - name: Confirmer Prometheus
+      debug:
+        msg: "Prometheus operationnel — http://<MASTER_IP>:30090"
+
+    # ─── TÂCHE 6 : Déployer Grafana ─────────────────────────────────
+    # grafana-secret doit exister avant cette étape (créé tâche 3).
+    - name: Appliquer grafana.yml
+      command: kubectl apply -f {{ k8s_manifests_path }}/monitoring/grafana.yml
+      register: grafana_apply
+      changed_when: "'configured' in grafana_apply.stdout or 'created' in grafana_apply.stdout"
+
+    - name: Attendre que Grafana soit prêt
+      command: >
+        kubectl rollout status deployment/grafana
+        -n {{ myway_namespace }}
+        --timeout=180s
+      register: grafana_ready
+      retries: 3
+      delay: 10
+      until: grafana_ready.rc == 0
+
+    - name: Confirmer Grafana
+      debug:
+        msg: "Grafana operationnel — http://<MASTER_IP>:30030"
+
+    # ─── TÂCHE 7 : Vérifier les HPAs ────────────────────────────────
+    # Avec metrics-server opérationnel, les HPAs doivent afficher des
+    # valeurs CPU réelles (pas "<unknown>").
+    - name: Vérifier l'état des HorizontalPodAutoscalers
+      command: kubectl get hpa -n {{ myway_namespace }}
+      register: hpa_status
+      changed_when: false
+      failed_when: false
+
+    - name: Statut des HPAs
+      debug:
+        msg: "{{ hpa_status.stdout }}"
+
+    # ─── TÂCHE 8 : Afficher les URLs d'accès ────────────────────────
+    - name: Récupérer l'IP publique du master
+      command: curl -s http://169.254.169.254/latest/meta-data/public-ipv4
+      register: master_public_ip
+      changed_when: false
+      failed_when: false
+
+    - name: Afficher les URLs de monitoring
+      debug:
+        msg:
+          - "=================================================="
+          - "  Prometheus : http://{{ master_public_ip.stdout }}:30090"
+          - "  Grafana    : http://{{ master_public_ip.stdout }}:30030"
+          - "  Login      : admin / (recuperer via kubectl get secret grafana-secret -n myway)"
+          - "=================================================="
