@@ -19,6 +19,7 @@ A React + Node.js application to help students manage their modules, resources, 
 
 ## Getting Started
 
+Test
 ### Prerequisites
 
 - Node.js (v18 or higher)
